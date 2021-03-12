@@ -47,7 +47,7 @@ FILE_SIZE_FIELD_LEN  = 8 # 8 byte file size field.
 # be a 1-byte integer. For now, we only define the "GET" command,
 # which tells the server to send a file.
 
-CMD = { "GET" : 2 }
+CMD = { "PUT": 1, "GET" : 2 }
 
 MSG_ENCODING = "utf-8"
     
@@ -58,7 +58,7 @@ MSG_ENCODING = "utf-8"
 class Server:
 
     HOSTNAME = "127.0.0.1"
-
+    BROADCAST_PORT = 30000
     PORT = 50000
     RECV_SIZE = 1024
     BACKLOG = 5
@@ -75,11 +75,29 @@ class Server:
         for file in list_files:
             if os.path.isfile(file):
                print(file)
-        self.create_listen_socket()
-        self.process_connections_forever()
+        #self.create_listen_socket()
+        #self.process_connections_forever()
+        self.create_listen_UDP()
+        self.connections_UDP_forever()
+    
+    ##UDP packet - Service Discovery Port
+    ##create UDP packets
+    def create_listen_UDP(self):
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #UDP socket (family,type)
+            self.socket.bind((Server.HOSTNAME, Server.BROADCAST_PORT))#(Local_IP,Local_Port)
+            print("Listening for service discovery messages on SDP port {port}".format(port_num = Server.BROADCAST_PORT))
+        except Exception as msg:
+            print(msg)
+            exit()
+    
+    ##Listens for UDP packet; Receive message SERVICE DISCOVERY
+    def connections_UDP_forever(self)：
     
     
-    ###TCP
+    
+    
+    ###TCP -- File Sharing Port 30001
     def create_listen_socket(self):
         try:
             # Create the TCP server listen socket in the usual way.
