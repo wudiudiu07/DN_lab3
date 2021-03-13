@@ -59,7 +59,7 @@ class Server:
 
     HOSTNAME = "127.0.0.1"
     BROADCAST_PORT = 30000
-    PORT = 50000
+    PORT = 50000 #TCP port
     RECV_SIZE = 1024
     BACKLOG = 5
 
@@ -93,7 +93,22 @@ class Server:
     
     ##Listens for UDP packet; Receive message SERVICE DISCOVERY
     def connections_UDP_forever(self)：
-    
+        try:
+            while True:
+                bytesAddressPair = self.socket.recvfrom(Server.RECV_SIZE)
+                data = bytesAddressPair[0]
+                address = bytesAddressPair[1]
+                if (data.decode('utf-8') == "Service Discovery"):
+                    #data_to_send = str.encode("Zishu's File Sharing Service")
+                    #print("message content:{}".format(data))
+                    #print("client IP address:{}".format(address))
+                    self.socket.sendto("Zishu's File Sharing Service".encode('utf-8'), address)
+                    self.create_listen_socket()
+                    self.process_connections_forever()
+        except KeyboardInterrupt:
+            print()
+        finally:
+            self.socket.close()
     
     
     
