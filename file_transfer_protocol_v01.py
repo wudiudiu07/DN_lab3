@@ -192,12 +192,27 @@ class Server:
                 connection.close()
                 break
     
-    
+    def socket_recv_size(self, length,connection):
+        bytes = connection.recv(length)
+        #print(f"the bytes content is{int.from_bytes(bytes, byteorder='big')}")
+        if len(bytes) < length:
+            self.tcp_socket.close()
+            exit()
+        return(bytes)
+        
     def receive_file(self,connection):
         filename = connection.recv(Server.RECV_SIZE).decode(MSG_ENCODING)
         recvd_bytes_total = bytearray()
+        #file_size_bytes = connection.recv(Server.RECV_SIZE) 
+        file_size_bytes = self.socket_recv_size(FILE_SIZE_FIELD_LEN,connection)
+        file_size = int.from_bytes(file_size_bytes, byteorder='big')
+        if len(file_size_bytes) == 0:
+               self.tcp_socket.close()
+               return
         try:
-            recvd_bytes_total += connection.recv(Server.RECV_SIZE)  
+        
+            while len(recvd_bytes_total) < file_size:
+                recvd_bytes_total += connection.recv(Server.RECV_SIZE)  
             print("Received {} bytes. Creating file: {}" \
                   .format(len(recvd_bytes_total), filename))
             with open(filename, 'w') as f:
@@ -393,6 +408,7 @@ class Client:
 
     def socket_recv_size(self, length):
         bytes = self.tcp_socket.recv(length)
+        #print(f"the bytes content is{int.from_bytes(bytes, byteorder='big')}")
         if len(bytes) < length:
             self.tcp_socket.close()
             exit()
@@ -416,7 +432,6 @@ class Client:
 
         # Create the packet.
         pkt = get_field + filename_field
-        print(f"the content sended out is {pkt.decode(MSG_ENCODING)}")
         # Send the request packet to the server.
         self.tcp_socket.sendall(pkt)
 
@@ -424,7 +439,8 @@ class Client:
         file_bytes = file.encode(MSG_ENCODING)
         file_size_bytes = len(file_bytes)
         print(f"file_size_bytes is {file_size_bytes}")
-        pkt = file_bytes
+        file_size_field = file_size_bytes.to_bytes(FILE_SIZE_FIELD_LEN, byteorder='big')
+        pkt = file_size_field + file_bytes
         try:
             # Send the packet to the connected server.
             self.tcp_socket.sendall(pkt)
