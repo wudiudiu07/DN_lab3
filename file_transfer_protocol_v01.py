@@ -50,6 +50,7 @@ FILE_SIZE_FIELD_LEN  = 8 # 8 byte file size field.
 CMD = { "PUT": 1, "GET" : 2 }
 
 MSG_ENCODING = "utf-8"
+SCAN_CMD = "SERVICE DISCOVERY"
     
 ########################################################################
 # SERVER
@@ -60,6 +61,13 @@ class Server:
     HOSTNAME = "127.0.0.1"
     BROADCAST_PORT = 30000
     PORT = 50000 #TCP port
+
+    ALL_IF_ADDRESS = "0.0.0.0"
+    SERVICE_SCAN_PORT = 30000
+
+    MSG = "Zishu's File Sharing Service"
+    MSG_ENCODED = MSG.encode(MSG_ENCODING)
+
     RECV_SIZE = 1024
     BACKLOG = 5
 
@@ -69,30 +77,67 @@ class Server:
     REMOTE_FILE_NAME = "remotefile.txt"
 
     def __init__(self):
-        #outoput the current directory
+        self.show_local_files()
+        self.create_listen_UDP()
+        self.create_listen_TCP()
+        self.receive_forever()
+        #self.create_listen_socket()
+        #self.process_connections_forever()
+        # self.connections_UDP_forever()
+    
+    #outoput the current directory
+    def show_local_files(self):
         print("List of files available for sharing:")
         list_files = os.listdir(os.getcwd())
         for file in list_files:
             if os.path.isfile(file):
                print(file)
-        #self.create_listen_socket()
-        #self.process_connections_forever()
-        self.create_listen_UDP()
-        self.connections_UDP_forever()
-    
+
     ##UDP packet - Service Discovery Port
     ##create UDP packets
     def create_listen_UDP(self):
         try:
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #UDP socket (family,type)
-            self.socket.bind((Server.HOSTNAME, Server.BROADCAST_PORT))#(Local_IP,Local_Port)
-            print("Listening for service discovery messages on SDP port {port}".format(port_num = Server.BROADCAST_PORT))
+            self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #UDP socket (family,type)
+            self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.udp_socket.bind((Server.ALL_IF_ADDRESS, Server.SERVICE_SCAN_PORT))#(Local_IP,Local_Port)
+            print(f"Listening for service discovery messages on SDP port {Server.BROADCAST_PORT}")
+        except Exception as msg:
+            print(msg)
+            exit()
+
+    ###TCP -- File Sharing Port 30001
+    def create_listen_TCP(self):
+        try:
+            # Create the TCP server listen socket in the usual way.
+            self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.tcp_socket.bind((Server.HOSTNAME, Server.PORT))
+            self.tcp_socket.listen(Server.BACKLOG)
+            print(f"Listening for file sharing connections on port {Server.PORT}.")
         except Exception as msg:
             print(msg)
             exit()
     
+    def receive_forever(self):
+        while True:
+            try:
+                recvd_bytes, address = self.udp_socket.recvfrom(Server.RECV_SIZE)
+            
+                # Decode the received bytes back into strings.
+                recvd_str = recvd_bytes.decode(MSG_ENCODING)
+
+                # Check if the received packet contains a service scan
+                # command.
+                if SCAN_CMD in recvd_str:
+                    # Send the service advertisement message back to
+                    # the client.
+                    self.udp_socket.sendto(Server.MSG_ENCODED, address)
+            except KeyboardInterrupt:
+                print()
+                exit(1)
+
     ##Listens for UDP packet; Receive message SERVICE DISCOVERY
-    def connections_UDP_forever(self)：
+    def connections_UDP_forever(self):
         try:
             while True:
                 bytesAddressPair = self.socket.recvfrom(Server.RECV_SIZE)
@@ -109,21 +154,6 @@ class Server:
             print()
         finally:
             self.socket.close()
-    
-    
-    
-    ###TCP -- File Sharing Port 30001
-    def create_listen_socket(self):
-        try:
-            # Create the TCP server listen socket in the usual way.
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.socket.bind((Server.HOSTNAME, Server.PORT))
-            self.socket.listen(Server.BACKLOG)
-            print("Listening on port {} ...".format(Server.PORT))
-        except Exception as msg:
-            print(msg)
-            exit()
 
     def process_connections_forever(self):
         try:
@@ -186,23 +216,98 @@ class Server:
 
 class Client:
 
-    RECV_SIZE = 10
+    RECV_SIZE = 1024  
+
+    BROADCAST_ADDRESS = "255.255.255.255"
+    SERVICE_PORT = 30000
+    ADDRESS_PORT = (BROADCAST_ADDRESS, SERVICE_PORT)
+
+    SCAN_CYCLES = 1
+    SCAN_TIMEOUT = 5
+
+    SCAN_CMD_ENCODED = SCAN_CMD.encode(MSG_ENCODING)
 
     # Define the local file name where the downloaded file will be
     # saved.
     LOCAL_FILE_NAME = "localfile.txt"
 
     def __init__(self):
-        self.get_socket()
-        self.connect_to_server()
-        self.get_file()
+        self.get_socket_UDP()
+        self.get_socket_TCP()
+        self.run()
+        # self.connect_to_server()
+        # self.get_file()
 
-    def get_socket(self):
+    def run(self):
+        print("Please input your commands here")
         try:
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            while True:
+                user_input = input("> ")
+                if user_input == 'scan':
+                    self.scan_for_service()
+        except KeyboardInterrupt:
+            print("Quit the client")
+
+    def get_socket_UDP(self):
+        try:
+            # Create an IPv4 UDP socket.
+            self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            # Set socket layer socket options.
+            self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+            # Arrange to send a broadcast service discovery packet.
+            self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+            # Set the socket for a socket.timeout if a scanning recv
+            # fails.
+            self.udp_socket.settimeout(Client.SCAN_TIMEOUT);
+
         except Exception as msg:
             print(msg)
             exit()
+
+    def get_socket_TCP(self):
+        try:
+            self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        except Exception as msg:
+            print(msg)
+            exit()
+
+    def scan_for_service(self):
+        # Collect our scan results in a list.
+        scan_results = []
+
+        # Repeat the scan procedure a preset number of times.
+        for i in range(Client.SCAN_CYCLES):
+
+            # Send a service discovery broadcast.       
+            self.udp_socket.sendto(Client.SCAN_CMD_ENCODED, Client.ADDRESS_PORT)
+        
+            while True:
+                # Listen for service responses. So long as we keep
+                # receiving responses, keep going. Timeout if none are
+                # received and terminate the listening for this scan
+                # cycle.
+                try:
+                    recvd_bytes, address = self.udp_socket.recvfrom(Client.RECV_SIZE)
+                    recvd_msg = recvd_bytes.decode(MSG_ENCODING)
+
+                    # Record only unique services that are found.
+                    if (recvd_msg, address) not in scan_results:
+                        scan_results.append((recvd_msg, address))
+                        continue
+                # If we timeout listening for a new response, we are
+                # finished.
+                except socket.timeout:
+                    break
+
+        # Output all of our scan results, if any.
+        if scan_results:
+            for result in scan_results:
+                print(f'{result[0]} found at IP address/port {result[1][0]}, {result[1][1]}')
+        else:
+            print("No service found.")
 
     def connect_to_server(self):
         try:
