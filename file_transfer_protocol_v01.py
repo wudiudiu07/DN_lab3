@@ -245,6 +245,9 @@ class Client:
                 user_input = input("> ")
                 if user_input == 'scan':
                     self.scan_for_service()
+                elif user_input == 'llist':
+                    self.show_local_files()
+                elif 
         except KeyboardInterrupt:
             print("Quit the client")
 
@@ -367,6 +370,12 @@ class Client:
         # and close it on this end.
         except socket.error:
             self.socket.close()
+
+    def show_local_files(self):
+        list_files = os.listdir(os.getcwd())
+        for file in list_files:
+            if os.path.isfile(file):
+               print(file)
             
 ########################################################################
 
