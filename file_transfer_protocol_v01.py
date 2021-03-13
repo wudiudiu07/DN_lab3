@@ -120,8 +120,8 @@ class Server:
     
     ##Listens for UDP packet; Receive message SERVICE DISCOVERY
     def service_announcement(self):
-        while True:
-            try:
+        try:
+            while True:
                 recvd_bytes, address = self.udp_socket.recvfrom(Server.RECV_SIZE)
             
                 # Decode the received bytes back into strings.
@@ -133,14 +133,15 @@ class Server:
                     # Send the service advertisement message back to
                     # the client.
                     self.udp_socket.sendto(Server.MSG_ENCODED, address)
-            except Exception as msg:
-                print(msg)
-            except KeyboardInterrupt:
-                print()
-            finally:
-                print("Closing udp server socket ...")
-                self.udp_socket.close()
-                exit(1)
+                    
+        except Exception as msg:
+            print(msg)
+        except KeyboardInterrupt:
+            print()
+        finally:
+            print("Closing udp server socket ...")
+            self.udp_socket.close()
+            exit(1)
 
     ###TCP -- Receiver connections from client
     def process_connections_forever(self):
@@ -164,8 +165,7 @@ class Server:
     ###TCP -- Handle connections from client
     def connection_handler(self, client):
         connection, address = client
-        print("-" * 72)
-        print("Connection received from {}.".format(address))
+        print(f"Connection received from address {address[0]} on port {address[1]}.")
 
         while True:
             try:
