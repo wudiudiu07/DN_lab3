@@ -22,6 +22,7 @@ import socket
 import argparse
 import os
 import threading
+import json
 
 ########################################################################
 
@@ -178,10 +179,10 @@ class Server:
 
                 # Read the command and see if it is a GET.
                 cmd = int.from_bytes(recvd_bytes, byteorder='big')
-                if cmd == CMD['LIST']:
+                if cmd == CMD['LIST']: #add llist and rlist
                     pass
                 elif cmd == CMD['PUT']:
-                    pass
+                    self.receive_file(connection)
                 elif cmd == CMD['GET']:
                     self.send_file(connection)
 
@@ -190,6 +191,30 @@ class Server:
                 print("Closing client connection ... ")
                 connection.close()
                 break
+    
+    
+    def receive_file(self,connection):
+        filename = connection.recv(Server.RECV_SIZE).decode(MSG_ENCODING)
+        recvd_bytes_total = bytearray()
+        try:
+            recvd_bytes_total += connection.recv(Server.RECV_SIZE)  
+            print("Received {} bytes. Creating file: {}" \
+                  .format(len(recvd_bytes_total), filename))
+            with open(filename, 'w') as f:
+                f.write(recvd_bytes_total.decode(MSG_ENCODING))
+                
+            #rlist
+            dir_list = []
+            r_list = os.listdir(os.getcwd())
+            for entry in r_list:
+                if os.path.isfile(entry):
+                   dir_list.append(entry)
+            current_list = json.dumps(dir_list)
+            connection.sendall(current_list.encode(MSG_ENCODING)) 
+        except KeyboardInterrupt:
+            print()
+            exit(1)
+       
 
     def send_file(self, connection):
         # The command is good. Now read and decode the requested
@@ -271,7 +296,13 @@ class Client:
 
                 elif user_input == 'llist':
                     self.show_local_files()
-
+                elif user_input.startswith('put'):
+                    if len(user_input.split()) != 2:
+                        print('Invalid input. get <filename>')
+                    else:
+                        print("The filename is ",input_list[1])
+                        self.upload_file(input_list[1])
+                        
                 elif user_input.startswith('get'):
                     if len(user_input.split()) != 2:
                         print('Invalid input. get <filename>')
@@ -366,7 +397,47 @@ class Client:
             self.tcp_socket.close()
             exit()
         return(bytes)
+    
+    def upload_file(self,filename):
+        print(f"Send file:{filename}")
+        try:
+            file = open(filename, 'r').read()
             
+            
+        except FileNotFoundError:
+            print(Server.FILE_NOT_FOUND_MSG)
+            self.tcp_socket.close()                   
+            return
+        # Create the packet GET field.
+        get_field = CMD["PUT"].to_bytes(CMD_FIELD_LEN, byteorder='big')
+
+        # Create the packet filename field.
+        filename_field = filename.encode(MSG_ENCODING)
+
+        # Create the packet.
+        pkt = get_field + filename_field
+        print(f"the content sended out is {pkt.decode(MSG_ENCODING)}")
+        # Send the request packet to the server.
+        self.tcp_socket.sendall(pkt)
+
+        # Send the file content to the server
+        file_bytes = file.encode(MSG_ENCODING)
+        file_size_bytes = len(file_bytes)
+        print(f"file_size_bytes is {file_size_bytes}")
+        pkt = file_bytes
+        try:
+            # Send the packet to the connected server.
+            self.tcp_socket.sendall(pkt)
+            # print("Sent packet bytes: \n", pkt)
+            print("Sending file: ", filename)
+        except socket.error:
+            # If the client has closed the connection, close the
+            # socket on this end.
+            print("Closing client connection ...")
+            self.tcp_socket.close()
+            return
+        
+        
     def get_file(self, filename):
 
         # Create the packet GET field.
