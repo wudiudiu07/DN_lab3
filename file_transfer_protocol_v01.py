@@ -50,7 +50,7 @@ FILE_NAME_FIELD_LEN  = 8 # 8 byte file size field.
 # be a 1-byte integer. For now, we only define the "GET" command,
 # which tells the server to send a file.
 
-CMD = {"GET": 1, "PUT" : 2, "LIST": 3}
+CMD = {"GET": 1, "PUT" : 2, "LIST": 3,"RLIST": 4}
 
 MSG_ENCODING = "utf-8"
 SCAN_CMD = "SERVICE DISCOVERY"
@@ -184,6 +184,9 @@ class Server:
                     pass
                 elif cmd == CMD['PUT']:
                     self.receive_file(connection)
+                elif cmd == CMD['RLIST']:
+                    connection.sendall(str(os.listdir()).encode("utf-8"))
+                    print("Send remoting list: ", os.listdir())
                 elif cmd == CMD['GET']:
                     self.send_file(connection)
 
@@ -330,6 +333,27 @@ class Client:
 
                 elif user_input == 'llist':
                     self.show_local_files()
+
+
+                    
+                elif user_input =='rlist':
+                    # Get remote dirctory and print out
+                    get_field = CMD["RLIST"].to_bytes(CMD_FIELD_LEN, byteorder='big')
+                    #filename_field = connect_prompt_args.encode(MSG_ENCODING)
+                    #pkt = get_field + filename_field
+                    print("sending 3..." , get_field)
+                    self.tcp_socket.sendall(get_field)
+                    recvd_bytes = self.tcp_socket.recv(1024)
+                    if len(recvd_bytes) == 0:
+                        print("Closing server connection ... ")
+                        self.tcp_socket.close()
+                        sys.exit(1)
+
+                    print("Received: ", recvd_bytes.decode("utf-8"))
+
+
+
+                    
                 elif user_input.startswith('put'):
                     if len(user_input.split()) != 2:
                         print('Invalid input. get <filename>')
@@ -544,6 +568,11 @@ if __name__ == '__main__':
     roles[args.role]()
 
 ########################################################################
+
+
+
+
+
 
 
 
