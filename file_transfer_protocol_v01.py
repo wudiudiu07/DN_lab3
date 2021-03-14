@@ -30,6 +30,7 @@ import json
 # corresponding packet formats below.
 CMD_FIELD_LEN = 1 # 1 byte commands sent from the client.
 FILE_SIZE_FIELD_LEN  = 8 # 8 byte file size field.
+FILE_NAME_FIELD_LEN  = 8 # 8 byte file size field.
 
 # Packet format when a GET command is sent from a client, asking for a
 # file download:
@@ -201,36 +202,44 @@ class Server:
         return(bytes)
         
     def receive_file(self,connection):
-        filename = connection.recv(Server.RECV_SIZE).decode(MSG_ENCODING)
-        recvd_bytes_total = bytearray()
-        #file_size_bytes = connection.recv(Server.RECV_SIZE) 
+        # Receive file name size
+        file_name_size_bytes = self.socket_recv_size(FILE_NAME_FIELD_LEN, connection)
+        file_name_size = int.from_bytes(file_name_size_bytes, byteorder='big')
+
+        # Receive file name
+        file_name_bytes = bytearray()
+        if len(file_name_size_bytes) == 0:
+            self.tcp_socket.close()
+            return
+        try:
+            while len(file_name_bytes) < file_name_size:
+                file_name_bytes += connection.recv(Server.RECV_SIZE)
+            file_name = file_name_bytes.decode(MSG_ENCODING)
+            print(f"File to receive is {file_name}")
+        except KeyboardInterrupt:
+            print()
+            exit(1)
+
+        #Receive file size
         file_size_bytes = self.socket_recv_size(FILE_SIZE_FIELD_LEN,connection)
         file_size = int.from_bytes(file_size_bytes, byteorder='big')
+
+        # Receive file
+        recvd_bytes_total = bytearray()
         if len(file_size_bytes) == 0:
-               self.tcp_socket.close()
-               return
+            self.tcp_socket.close()
+            return
         try:
-        
             while len(recvd_bytes_total) < file_size:
                 recvd_bytes_total += connection.recv(Server.RECV_SIZE)  
             print("Received {} bytes. Creating file: {}" \
-                  .format(len(recvd_bytes_total), filename))
-            with open(filename, 'w') as f:
+                  .format(len(recvd_bytes_total), file_name))
+            with open(file_name, 'w') as f:
                 f.write(recvd_bytes_total.decode(MSG_ENCODING))
-                
-            #rlist
-            dir_list = []
-            r_list = os.listdir(os.getcwd())
-            for entry in r_list:
-                if os.path.isfile(entry):
-                   dir_list.append(entry)
-            current_list = json.dumps(dir_list)
-            connection.sendall(current_list.encode(MSG_ENCODING)) 
         except KeyboardInterrupt:
             print()
             exit(1)
        
-
     def send_file(self, connection):
         # The command is good. Now read and decode the requested
         # filename.
@@ -266,6 +275,16 @@ class Server:
             print("Closing client connection ...")
             connection.close()
             return
+
+    #rlist
+    def send_list(self):
+        dir_list = []
+        r_list = os.listdir(os.getcwd())
+        for entry in r_list:
+            if os.path.isfile(entry):
+                dir_list.append(entry)
+        current_list = json.dumps(dir_list)
+        connection.sendall(current_list.encode(MSG_ENCODING)) 
 
 ########################################################################
 # CLIENT
@@ -427,11 +446,15 @@ class Client:
         # Create the packet GET field.
         get_field = CMD["PUT"].to_bytes(CMD_FIELD_LEN, byteorder='big')
 
+        # Create the packet filename size field
+        file_name_size_bytes = len(filename)
+        file_name_size_field = file_name_size_bytes.to_bytes(FILE_NAME_FIELD_LEN, byteorder='big')
+
         # Create the packet filename field.
         filename_field = filename.encode(MSG_ENCODING)
 
         # Create the packet.
-        pkt = get_field + filename_field
+        pkt = get_field + file_name_size_field + filename_field
         # Send the request packet to the server.
         self.tcp_socket.sendall(pkt)
 
@@ -488,9 +511,9 @@ class Client:
             # Create a file using the received filename and store the
             # data.
             print("Received {} bytes. Creating file: {}" \
-                  .format(len(recvd_bytes_total), Client.LOCAL_FILE_NAME))
+                  .format(len(recvd_bytes_total), filename))
 
-            with open(Client.LOCAL_FILE_NAME, 'w') as f:
+            with open(filename, 'w') as f:
                 f.write(recvd_bytes_total.decode(MSG_ENCODING))
         except KeyboardInterrupt:
             print()
