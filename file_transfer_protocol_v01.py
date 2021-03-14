@@ -31,6 +31,7 @@ import json
 CMD_FIELD_LEN = 1 # 1 byte commands sent from the client.
 FILE_SIZE_FIELD_LEN  = 8 # 8 byte file size field.
 FILE_NAME_FIELD_LEN  = 8 # 8 byte file size field.
+LIST_SIZE_FIELD_LEN = 8
 
 # Packet format when a GET command is sent from a client, asking for a
 # file download:
@@ -46,11 +47,25 @@ FILE_NAME_FIELD_LEN  = 8 # 8 byte file size field.
 # | 8 byte file size | ... file ... |
 # -----------------------------------
 
+# Packet format when a PUT command is sent from a client, asking for a
+# file upload:
+
+# -----------------------------------------------------------------------------------------------------
+# | 1 byte PUT command  | 8 byte file name size | ... file name ... | 8 byte file size | ... file ... |
+# -----------------------------------------------------------------------------------------------------
+
+# Packet format when a RLIST command is sent from a client, asking for a
+# file upload:
+
+# -----------------------------------------------------------
+# | 1 byte RLIST command  | 8 byte list size | ... list ... |
+# -----------------------------------------------------------
+
 # Define a dictionary of commands. The actual command field value must
 # be a 1-byte integer. For now, we only define the "GET" command,
 # which tells the server to send a file.
 
-CMD = {"GET": 1, "PUT" : 2, "LIST": 3,"RLIST": 4}
+CMD = {"GET": 1, "PUT" : 2, "RLIST": 3}
 
 MSG_ENCODING = "utf-8"
 SCAN_CMD = "SERVICE DISCOVERY"
@@ -180,13 +195,10 @@ class Server:
 
                 # Read the command and see if it is a GET.
                 cmd = int.from_bytes(recvd_bytes, byteorder='big')
-                if cmd == CMD['LIST']: #add llist and rlist
-                    pass
+                if cmd == CMD['RLIST']: #add llist and rlist
+                    self.send_list(connection)
                 elif cmd == CMD['PUT']:
                     self.receive_file(connection)
-                elif cmd == CMD['RLIST']:
-                    connection.sendall(str(os.listdir()).encode("utf-8"))
-                    print("Send remoting list: ", os.listdir())
                 elif cmd == CMD['GET']:
                     self.send_file(connection)
 
@@ -196,45 +208,63 @@ class Server:
                 connection.close()
                 break
     
-    def socket_recv_size(self, length,connection):
+    def socket_recv_size(self, length, connection):
         bytes = connection.recv(length)
-        #print(f"the bytes content is{int.from_bytes(bytes, byteorder='big')}")
         if len(bytes) < length:
+            print("Receive bytes smaller than input length")
+            print("Closing tcp server socket ...")
             self.tcp_socket.close()
             exit()
         return(bytes)
         
-    def receive_file(self,connection):
+    def receive_file(self, connection):
         # Receive file name size
         file_name_size_bytes = self.socket_recv_size(FILE_NAME_FIELD_LEN, connection)
+        if len(file_name_size_bytes) == 0:
+            print("Receive zero bytes for file name size")
+            print("Closing client connection ...")
+            connection.close()
+            return
+        
         file_name_size = int.from_bytes(file_name_size_bytes, byteorder='big')
 
         # Receive file name
         file_name_bytes = bytearray()
-        if len(file_name_size_bytes) == 0:
-            self.tcp_socket.close()
-            return
+            
         try:
             while len(file_name_bytes) < file_name_size:
                 file_name_bytes += connection.recv(Server.RECV_SIZE)
+
             file_name = file_name_bytes.decode(MSG_ENCODING)
             print(f"File to receive is {file_name}")
         except KeyboardInterrupt:
             print()
             exit(1)
+        # If the socket has been closed by the server, break out
+        # and close it on this end.
+        except socket.error:
+            print("Client side has closed connection")
+            print("Closing client connection ...")
+            connection.close()
+            return
 
         #Receive file size
-        file_size_bytes = self.socket_recv_size(FILE_SIZE_FIELD_LEN,connection)
+        file_size_bytes = self.socket_recv_size(FILE_SIZE_FIELD_LEN, connection)
+        if len(file_size_bytes) == 0:
+            print("Receive zero bytes for file size")
+            print("Closing client connection ...")
+            connection.close()
+            return
+
         file_size = int.from_bytes(file_size_bytes, byteorder='big')
 
         # Receive file
         recvd_bytes_total = bytearray()
-        if len(file_size_bytes) == 0:
-            self.tcp_socket.close()
-            return
+
         try:
             while len(recvd_bytes_total) < file_size:
-                recvd_bytes_total += connection.recv(Server.RECV_SIZE)  
+                recvd_bytes_total += connection.recv(Server.RECV_SIZE)
+
             print("Received {} bytes. Creating file: {}" \
                   .format(len(recvd_bytes_total), file_name))
             with open(file_name, 'w') as f:
@@ -242,6 +272,13 @@ class Server:
         except KeyboardInterrupt:
             print()
             exit(1)
+        # If the socket has been closed by the server, break out
+        # and close it on this end.
+        except socket.error:
+            print("Client side has closed connection")
+            print("Closing client connection ...")
+            connection.close()
+            return
        
     def send_file(self, connection):
         # The command is good. Now read and decode the requested
@@ -275,19 +312,44 @@ class Server:
         except socket.error:
             # If the client has closed the connection, close the
             # socket on this end.
+            print("Client side has closed connection")
             print("Closing client connection ...")
             connection.close()
             return
 
     #rlist
-    def send_list(self):
+    def send_list(self, connection):
+        # Get the list
         dir_list = []
         r_list = os.listdir(os.getcwd())
         for entry in r_list:
             if os.path.isfile(entry):
                 dir_list.append(entry)
         current_list = json.dumps(dir_list)
-        connection.sendall(current_list.encode(MSG_ENCODING)) 
+
+        # Get the list size
+        current_list_size = len(current_list)
+        current_list_size_field = current_list_size.to_bytes(LIST_SIZE_FIELD_LEN, byteorder='big')
+
+        # Encode the file contents into bytes, record its size and
+        # generate the file size field used for transmission.
+        current_list_bytes = current_list.encode(MSG_ENCODING)
+        
+        # Create the packet to be sent with header field
+        pkt = current_list_size_field + current_list_bytes
+
+        try:
+            # Send the packet to the connected client.
+            connection.sendall(pkt)
+            # print("Sent packet bytes: \n", pkt)
+            print("Sending remote list")
+        except socket.error:
+            # If the client has closed the connection, close the
+            # socket on this end.
+            print("Client side has closed connection")
+            print("Closing client connection ...")
+            connection.close()
+            return
 
 ########################################################################
 # CLIENT
@@ -312,7 +374,6 @@ class Client:
 
     def __init__(self):
         self.get_socket_UDP()
-        self.get_socket_TCP()
         self.run()
 
     def run(self):
@@ -326,6 +387,7 @@ class Client:
                     self.scan_for_service()
 
                 elif user_input.startswith('Connect'):
+                    self.get_socket_TCP()
                     if len(user_input.split()) != 3:
                         print('Invalid input. Connect <IP address> <port>')
                     else:
@@ -333,27 +395,10 @@ class Client:
 
                 elif user_input == 'llist':
                     self.show_local_files()
-
-
-                    
+           
                 elif user_input =='rlist':
-                    # Get remote dirctory and print out
-                    get_field = CMD["RLIST"].to_bytes(CMD_FIELD_LEN, byteorder='big')
-                    #filename_field = connect_prompt_args.encode(MSG_ENCODING)
-                    #pkt = get_field + filename_field
-                    print("sending 3..." , get_field)
-                    self.tcp_socket.sendall(get_field)
-                    recvd_bytes = self.tcp_socket.recv(1024)
-                    if len(recvd_bytes) == 0:
-                        print("Closing server connection ... ")
-                        self.tcp_socket.close()
-                        sys.exit(1)
+                    self.receive_list()
 
-                    print("Received: ", recvd_bytes.decode("utf-8"))
-
-
-
-                    
                 elif user_input.startswith('put'):
                     if len(user_input.split()) != 2:
                         print('Invalid input. get <filename>')
@@ -496,7 +541,8 @@ class Client:
         except socket.error:
             # If the client has closed the connection, close the
             # socket on this end.
-            print("Closing client connection ...")
+            print("Server side has closed connection")
+            print("Closing server connection ...")
             self.tcp_socket.close()
             return
         
@@ -517,10 +563,11 @@ class Client:
 
         # Read the file size field.
         file_size_bytes = self.socket_recv_size(FILE_SIZE_FIELD_LEN)
-
         if len(file_size_bytes) == 0:
-               self.tcp_socket.close()
-               return
+            print("Receive zero bytes for file size")
+            print("Closing server connection ...")
+            self.tcp_socket.close()
+            return
 
         # Make sure that you interpret it in host byte order.
         file_size = int.from_bytes(file_size_bytes, byteorder='big')
@@ -545,6 +592,8 @@ class Client:
         # If the socket has been closed by the server, break out
         # and close it on this end.
         except socket.error:
+            print("Server side has closed connection")
+            print("Closing server connection ...")
             self.tcp_socket.close()
 
     def show_local_files(self):
@@ -552,6 +601,47 @@ class Client:
         for file in list_files:
             if os.path.isfile(file):
                print(file)
+
+    def receive_list(self):
+        # Get remote dirctory and print out
+        get_field = CMD["RLIST"].to_bytes(CMD_FIELD_LEN, byteorder='big')
+
+        # Send the request packet to the server.
+        self.tcp_socket.sendall(get_field)
+
+        # Read the list size field.
+        list_size_bytes = self.socket_recv_size(LIST_SIZE_FIELD_LEN)
+
+        if len(list_size_bytes) == 0:
+            print("Receive zero bytes for list size")
+            print("Closing server connection ...")
+            self.tcp_socket.close()
+            return
+
+        # Make sure that you interpret it in host byte order.
+        list_size = int.from_bytes(list_size_bytes, byteorder='big')
+
+        # Receive the file itself.
+        recvd_bytes_total = bytearray()
+        try:
+            # Keep doing recv until the entire file is downloaded. 
+            while len(recvd_bytes_total) < list_size:
+                recvd_bytes_total += self.tcp_socket.recv(Client.RECV_SIZE)
+
+            receive_str = recvd_bytes_total.decode(MSG_ENCODING)
+            receive_list = json.loads(receive_str)
+
+            for r in receive_list:
+                print(r)
+        except KeyboardInterrupt:
+            print()
+            exit(1)
+        # If the socket has been closed by the server, break out
+        # and close it on this end.
+        except socket.error:
+            print("Server side has closed connection")
+            print("Closing server connection ...")
+            self.tcp_socket.close()
             
 ########################################################################
 
