@@ -236,7 +236,6 @@ class Server:
                 file_name_bytes += connection.recv(Server.RECV_SIZE)
 
             file_name = file_name_bytes.decode(MSG_ENCODING)
-            print(f"File to receive is {file_name}")
         except KeyboardInterrupt:
             print()
             exit(1)
@@ -265,7 +264,7 @@ class Server:
             while len(recvd_bytes_total) < file_size:
                 recvd_bytes_total += connection.recv(Server.RECV_SIZE)
 
-            print("Received {} bytes. Creating file: {}" \
+            print("Received {} bytes. \nCreating file: {}" \
                   .format(len(recvd_bytes_total), file_name))
             with open(file_name, 'w') as f:
                 f.write(recvd_bytes_total.decode(MSG_ENCODING))
@@ -299,6 +298,7 @@ class Server:
         # generate the file size field used for transmission.
         file_bytes = file.encode(MSG_ENCODING)
         file_size_bytes = len(file_bytes)
+        print(f"To send {file_size_bytes} bytes.")
         file_size_field = file_size_bytes.to_bytes(FILE_SIZE_FIELD_LEN, byteorder='big')
 
         # Create the packet to be sent with the header field.
@@ -308,7 +308,7 @@ class Server:
             # Send the packet to the connected client.
             connection.sendall(pkt)
             # print("Sent packet bytes: \n", pkt)
-            print("Sending file: ", filename)
+            print(f"Sending file: {filename}")
         except socket.error:
             # If the client has closed the connection, close the
             # socket on this end.
@@ -403,7 +403,6 @@ class Client:
                     if len(user_input.split()) != 2:
                         print('Invalid input. get <filename>')
                     else:
-                        print("The filename is ",input_list[1])
                         self.upload_file(input_list[1])
                         
                 elif user_input.startswith('get'):
@@ -503,7 +502,6 @@ class Client:
         return(bytes)
     
     def upload_file(self,filename):
-        print(f"Send file:{filename}")
         try:
             file = open(filename, 'r').read()
             
@@ -530,14 +528,14 @@ class Client:
         # Send the file content to the server
         file_bytes = file.encode(MSG_ENCODING)
         file_size_bytes = len(file_bytes)
-        print(f"file_size_bytes is {file_size_bytes}")
+        print(f"To send {file_size_bytes} bytes.")
         file_size_field = file_size_bytes.to_bytes(FILE_SIZE_FIELD_LEN, byteorder='big')
         pkt = file_size_field + file_bytes
         try:
             # Send the packet to the connected server.
             self.tcp_socket.sendall(pkt)
             # print("Sent packet bytes: \n", pkt)
-            print("Sending file: ", filename)
+            print(f"Sending file: {filename}")
         except socket.error:
             # If the client has closed the connection, close the
             # socket on this end.
