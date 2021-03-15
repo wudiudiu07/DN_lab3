@@ -520,8 +520,17 @@ class Client:
 
         # Create the packet.
         pkt = get_field + file_name_size_field + filename_field
-        # Send the request packet to the server.
-        self.tcp_socket.sendall(pkt)
+
+        try:
+            # Send the packet to the connected client.
+            self.tcp_socket.sendall(pkt)
+        except socket.error:
+            # If the client has closed the connection, close the
+            # socket on this end.
+            print("Server side has closed connection")
+            print("Closing server connection ...")
+            self.tcp_socket.close()
+            return
 
         # Send the file content to the server
         file_bytes = file
